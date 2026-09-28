@@ -36,6 +36,7 @@ Rules:
 - INFO flags: useful context (chronic conditions, preferences).
 - "whatWorked" is ONLY from clinic memories (C refs): say how many similar cases and what happened.
 - If PATIENT MEMORY is (none), this is a first visit: say so, write no flag about the patient's past history, allergies or medicines, and keep guidance generic and cautious.
+- Missing information is "not recorded", never "none": an empty chart does not mean the patient has no allergies or medicines.
 - Keep every string short and concrete. No filler. No drug doses. No final diagnosis.
 
 Return JSON exactly in this shape:
