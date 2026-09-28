@@ -10,24 +10,36 @@ interface Props {
 
 const SEVERITY_LABEL = { critical: "Critical", warning: "Warning", info: "Note" } as const;
 
+/** Citation chips. P and C refs point at a recalled memory; NOW means today's complaint. */
 export function RefChips({ refs, onRefHover }: { refs: string[]; onRefHover?: (r: string | null) => void }) {
   if (!refs.length) return null;
   return (
     <span className="refs">
-      {refs.map((r) => (
-        <button
-          key={r}
-          type="button"
-          className={`ref ref-${r[0] === "C" ? "clinic" : "patient"}`}
-          onMouseEnter={() => onRefHover?.(r)}
-          onMouseLeave={() => onRefHover?.(null)}
-          onFocus={() => onRefHover?.(r)}
-          onBlur={() => onRefHover?.(null)}
-          title={r[0] === "C" ? "From clinic memory" : "From this patient's memory"}
-        >
-          {r}
-        </button>
-      ))}
+      {refs.map((r) => {
+        if (r === "NOW") {
+          return (
+            <span key={r} className="ref ref-now" title="From today's complaint">
+              today
+            </span>
+          );
+        }
+        const source = r[0] === "C" ? "clinic memory" : "this patient's memory";
+        return (
+          <button
+            key={r}
+            type="button"
+            className={`ref ref-${r[0] === "C" ? "clinic" : "patient"}`}
+            onMouseEnter={() => onRefHover?.(r)}
+            onMouseLeave={() => onRefHover?.(null)}
+            onFocus={() => onRefHover?.(r)}
+            onBlur={() => onRefHover?.(null)}
+            title={`From ${source}`}
+            aria-label={`Citation ${r}, from ${source}`}
+          >
+            {r}
+          </button>
+        );
+      })}
     </span>
   );
 }
