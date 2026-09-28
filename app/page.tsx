@@ -298,6 +298,10 @@ export default function Home() {
                     <span>
                       reasoning <b>{(result.timings.llmMs / 1000).toFixed(1)} s</b>
                     </span>
+                    <span title={result.fallbackUsed ? "The primary model was unavailable, so the fallback model wrote this brief" : undefined}>
+                      model <b>{result.model}</b>
+                      {result.fallbackUsed ? " (fallback)" : ""}
+                    </span>
                   </div>
                   {learnedToday > 0 && (
                     <div className="learned-banner" role="status">

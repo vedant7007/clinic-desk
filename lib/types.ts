@@ -72,7 +72,10 @@ export interface BriefResult {
   withoutMemory: Brief | null;
   memories: MemoryItem[];
   timings: { recallMs: number; llmMs: number };
+  /** Groq model that wrote the memory brief. */
   model: string;
+  /** True when the primary model failed and the fallback wrote the brief. */
+  fallbackUsed: boolean;
 }
 
 export type Outcome = "resolved" | "improved" | "no_change" | "worse";

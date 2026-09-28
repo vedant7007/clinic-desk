@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { completeJson } from "./llm";
+import { PRIMARY_MODEL, completeJson } from "./llm";
 import { recallClinic, recallPatient } from "./memory";
 import type { Brief, BriefResult, MemoryItem, Patient } from "./types";
 
@@ -129,5 +129,6 @@ export async function buildBrief(patient: Patient, complaint: string, compare: b
     memories: [...patientMem, ...clinicMem],
     timings: { recallMs, llmMs },
     model: withMem.model,
+    fallbackUsed: withMem.model !== PRIMARY_MODEL(),
   };
 }
