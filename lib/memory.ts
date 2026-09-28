@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { RecallResult } from "@vectorize-io/hindsight-client";
 import { CLINIC_BANK, PATIENT_BANK, bankStats, getHindsight, listMemoriesByTags } from "./hindsight";
 import type { ChartResult, MemoryItem, MemorySource, MemoryStats, Outcome, Patient } from "./types";
@@ -132,11 +133,23 @@ export async function memoryStats(): Promise<MemoryStats> {
   return { patient: patient.total_nodes, clinic: clinic.total_nodes };
 }
 
+/**
+ * Stable id for a write: the same content on the same day always maps to the same
+ * Hindsight document, so a double click or a retried request replaces the memory
+ * instead of storing it twice.
+ */
+export function contentId(...parts: string[]): string {
+  const normalised = parts.map((p) => p.trim().toLowerCase().replace(/\s+/g, " ")).join("|");
+  return createHash("sha256").update(normalised).digest("hex").slice(0, 16);
+}
+
+const today = (now: Date) => now.toISOString().slice(0, 10);
+
 /** Store today's consultation in the patient's chart. */
 export async function retainVisit(patient: Patient, input: { complaint: string; notes: string; plan: string }) {
   const hs = getHindsight();
   const now = new Date();
-  const day = now.toISOString().slice(0, 10);
+  const day = today(now);
   const content =
     `Visit on ${day}. ${patient.name} (${patient.age}${patient.sex}) presented with: ${input.complaint}. ` +
     (input.notes ? `Doctor's findings: ${input.notes}. ` : "") +
@@ -144,19 +157,44 @@ export async function retainVisit(patient: Patient, input: { complaint: string; 
   return hs.retain(PATIENT_BANK, content, {
     timestamp: now,
     context: "clinic consultation note",
-    documentId: `${patient.id}-visit-${now.getTime()}`,
+    documentId: `${patient.id}-visit-${day}-${contentId(input.complaint, input.notes, input.plan)}`,
     tags: [patientTag(patient.id), "visit"],
     metadata: { patient_id: patient.id, kind: "visit" },
   });
 }
 
-/** Remove the patient's name from free text before it reaches the shared clinic bank. */
-export function anonymise(text: string, patient: Patient): string {
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** Case-insensitive pattern for one word without a global i flag: "Ravi" becomes "[Rr][Aa][Vv][Ii]". */
+const anyCase = (word: string) =>
+  Array.from(word)
+    .map((c) => (c.toLowerCase() !== c.toUpperCase() ? `[${c.toUpperCase()}${c.toLowerCase()}]` : escapeRe(c)))
+    .join("");
+
+const TITLES = ["Mr", "Mrs", "Ms", "Miss", "Mx", "Dr", "Prof", "Smt", "Shrimati", "Shri", "Sri", "Kumari", "Km", "Master"];
+
+/**
+ * Remove everything that identifies the patient from free text before it reaches the
+ * shared clinic bank: the name in any casing, with or without a title (Mr., Smt., Dr.),
+ * written with initials ("R. K. Reddy", "Ravi K Reddy"), the patient id, and phone numbers.
+ * Initials only count as capitals, so ordinary words such as "a" are never swallowed.
+ */
+export function anonymise(text: string, patient: Pick<Patient, "id" | "name">): string {
+  const words = patient.name.split(/\s+/).filter(Boolean);
+  const parts = words.filter((w) => w.length > 1).map(anyCase);
   let out = text;
-  for (const part of patient.name.split(/\s+/).filter((p) => p.length > 1)) {
-    out = out.replace(new RegExp(`\\b${part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "gi"), "the patient");
+  if (parts.length) {
+    const full = `(?:${parts.join("|")})`;
+    const initial = `[${Array.from(new Set(words.map((w) => w[0].toUpperCase()))).join("")}]\\.?`;
+    const title = `(?:${TITLES.map(anyCase).join("|")})\\.?`;
+    // optional title, any initials, then one or more full name parts
+    const span = new RegExp(`\\b(?:${title}\\s*)?(?:${initial}\\s*)*${full}\\b(?:\\s+${full}\\b)*`, "g");
+    out = out.replace(span, "the patient");
   }
-  return out.replace(/\bthe patient the patient\b/gi, "the patient");
+  return out
+    .replace(new RegExp(`\\b(?:patient\\s+)?${escapeRe(patient.id)}\\b`, "gi"), "the patient")
+    .replace(/\+?\d[\d\s-]{8,}\d/g, "[number removed]")
+    .replace(/\bthe patient(?:\s+the patient)+\b/gi, "the patient");
 }
 
 /**
@@ -171,7 +209,7 @@ export async function retainOutcome(
 ) {
   const hs = getHindsight();
   const now = new Date();
-  const day = now.toISOString().slice(0, 10);
+  const day = today(now);
   const label = OUTCOME_LABEL[input.outcome];
 
   const personal =
@@ -189,14 +227,15 @@ export async function retainOutcome(
     hs.retain(PATIENT_BANK, personal, {
       timestamp: now,
       context: "treatment outcome follow-up",
-      documentId: `${patient.id}-outcome-${now.getTime()}`,
+      documentId: `${patient.id}-outcome-${day}-${contentId(personal)}`,
       tags: [patientTag(patient.id), "outcome"],
       metadata: { patient_id: patient.id, kind: "outcome", outcome: input.outcome },
     }),
     hs.retain(CLINIC_BANK, shared, {
       timestamp: now,
       context: "anonymised case outcome",
-      documentId: `case-${now.getTime()}`,
+      // derived from the anonymised text only, so the id carries nothing identifying
+      documentId: `case-${day}-${contentId(shared)}`,
       tags: ["outcome", `outcome:${input.outcome}`],
       metadata: { kind: "case_outcome", outcome: input.outcome },
     }),

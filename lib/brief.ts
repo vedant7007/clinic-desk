@@ -119,13 +119,21 @@ export async function buildBrief(patient: Patient, complaint: string, compare: b
   const t1 = Date.now();
   const [withMem, withoutMem] = await Promise.all([
     draftBrief(patient, complaint, patientMem, clinicMem),
-    compare ? draftBrief(patient, complaint, [], []) : Promise.resolve(null),
+    // The memoryless brief is only for comparison: if it fails (usually a rate limit),
+    // the memory brief is still returned and the UI says the comparison is unavailable.
+    compare
+      ? draftBrief(patient, complaint, [], []).catch((err: unknown) => {
+          console.warn("[clinic-desk] comparison brief skipped:", err instanceof Error ? err.message : err);
+          return null;
+        })
+      : Promise.resolve(null),
   ]);
   const llmMs = Date.now() - t1;
 
   return {
     withMemory: withMem.brief,
     withoutMemory: withoutMem?.brief ?? null,
+    compareFailed: compare && !withoutMem,
     memories: [...patientMem, ...clinicMem],
     timings: { recallMs, llmMs },
     model: withMem.model,

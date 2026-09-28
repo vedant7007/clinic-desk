@@ -70,6 +70,8 @@ export interface Brief {
 export interface BriefResult {
   withMemory: Brief;
   withoutMemory: Brief | null;
+  /** The comparison was requested but could not be produced. */
+  compareFailed: boolean;
   memories: MemoryItem[];
   timings: { recallMs: number; llmMs: number };
   /** Groq model that wrote the memory brief. */

@@ -55,8 +55,13 @@ export function rateLimitWaitMs(err: unknown): number | null {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** Groq's own sentence ("The model x does not exist...") rather than the raw JSON body. */
 function describe(err: unknown): string {
-  if (err instanceof Groq.APIError) return `${err.status ?? "network"} ${err.message}`.slice(0, 200);
+  if (err instanceof Groq.APIError) {
+    const body = err.error as { error?: { message?: unknown } } | undefined;
+    const inner = typeof body?.error?.message === "string" ? body.error.message : err.message;
+    return `${err.status ?? "network error"}: ${inner}`.slice(0, 200);
+  }
   return err instanceof Error ? err.message.slice(0, 200) : String(err);
 }
 
@@ -101,6 +106,8 @@ export async function completeJson<T>(
       }
       lastError = err;
       console.warn(`[clinic-desk] ${model} attempt failed: ${describe(err)}`);
+      // A model this key cannot use will not appear on retry.
+      if (err instanceof Groq.APIError && err.status === 404) exhausted.add(model);
       const wait = rateLimitWaitMs(err);
       if (wait !== null) {
         if (wait <= MAX_RATE_LIMIT_WAIT_MS) await sleep(wait);
