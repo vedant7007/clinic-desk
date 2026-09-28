@@ -103,6 +103,22 @@ npm run dev                    # http://localhost:3000
 
 Models: `GROQ_MODEL` defaults to `openai/gpt-oss-120b` and `GROQ_FALLBACK_MODEL` to `qwen/qwen3.8-27b`. Both are called with `response_format: json_object`.
 
+### Deploy on Vercel
+
+Import the repository in Vercel (framework preset: Next.js) and set these environment variables for Production and Preview:
+
+| Variable | Value |
+| --- | --- |
+| `HINDSIGHT_BASE_URL` | `https://api.hindsight.vectorize.io` |
+| `HINDSIGHT_API_KEY` | your Hindsight Cloud key |
+| `GROQ_API_KEY` | your Groq key |
+| `GROQ_MODEL` | `openai/gpt-oss-120b` (optional, this is the default) |
+| `GROQ_FALLBACK_MODEL` | `qwen/qwen3.8-27b` (optional, this is the default) |
+| `PATIENT_BANK_ID` | `clinicdesk-patients` (optional, must match the bank you seeded) |
+| `CLINIC_BANK_ID` | `clinicdesk-clinic` (optional, must match the bank you seeded) |
+
+Seed the banks once from your machine with `npm run seed`; the deployed app only reads and writes memory over the API and never touches the local filesystem. Routes that call the model or write memory allow up to 60 seconds.
+
 ## Project layout
 
 ```
