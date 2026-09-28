@@ -23,7 +23,23 @@ export interface MemoryItem {
   text: string;
   type: string;
   date: string | null;
+  /** When the memory was written (the retain timestamp). Used to mark what was learned today. */
+  learnedAt: string | null;
   tags: string[];
+}
+
+/** One entry in a patient's full chart timeline. */
+export type ChartEntry = Omit<MemoryItem, "ref" | "source">;
+
+export interface ChartResult {
+  entries: ChartEntry[];
+  /** Consolidated observations are summaries of the entries above, so they are counted, not listed. */
+  observations: number;
+}
+
+export interface MemoryStats {
+  patient: number;
+  clinic: number;
 }
 
 export type FlagSeverity = "critical" | "warning" | "info";
@@ -42,6 +58,8 @@ export interface BriefInsight {
 
 export interface Brief {
   headline: string;
+  /** Short clinical problem label, used to pre-fill the outcome form. */
+  problem: string;
   flags: BriefFlag[];
   history: string;
   whatWorked: BriefInsight[];

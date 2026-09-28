@@ -1,18 +1,16 @@
 import { NextResponse } from "next/server";
-import { getPatient } from "@/data/patients";
 import { buildBrief } from "@/lib/brief";
-import { BadRequest, jsonError, readJson, requireString } from "@/lib/api";
+import { BadRequest, jsonError, readJson, requirePatient, requireString } from "@/lib/api";
 
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
   try {
-    const body = await readJson<{ patientId?: string; complaint?: string; compare?: boolean }>(req);
-    const patient = getPatient(requireString(body.patientId, "patientId", 20));
-    if (!patient) throw new BadRequest("Unknown patient");
+    const body = await readJson(req);
+    const patient = requirePatient(body.patientId);
     const complaint = requireString(body.complaint, "complaint", 1000);
-    const result = await buildBrief(patient, complaint, body.compare !== false);
-    return NextResponse.json(result);
+    if (body.compare !== undefined && typeof body.compare !== "boolean") throw new BadRequest("compare must be true or false");
+    return NextResponse.json(await buildBrief(patient, complaint, body.compare !== false));
   } catch (err) {
     return jsonError(err);
   }

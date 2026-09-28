@@ -4,7 +4,8 @@ import { recallClinic, recallPatient } from "./memory";
 import type { Brief, BriefResult, MemoryItem, Patient } from "./types";
 
 const BriefSchema = z.object({
-  headline: z.string().min(1),
+  headline: z.string().trim().min(1),
+  problem: z.string().default(""),
   flags: z
     .array(
       z.object({
@@ -38,6 +39,7 @@ Rules:
 
 Return JSON exactly in this shape:
 {"headline": string (one line, max 20 words),
+ "problem": string (3 to 8 word clinical problem label for today's visit, e.g. "persistent dry cough on lisinopril"; descriptive, not a diagnosis),
  "flags": [{"severity":"critical"|"warning"|"info","title":string,"detail":string,"refs":[string]}],
  "history": string (2-3 sentences, dated timeline),
  "whatWorked": [{"finding":string,"refs":[string]}],

@@ -1,18 +1,18 @@
 import { NextResponse } from "next/server";
-import { getPatient } from "@/data/patients";
 import { retainOutcome } from "@/lib/memory";
 import type { Outcome } from "@/lib/types";
-import { BadRequest, jsonError, optionalString, readJson, requireString } from "@/lib/api";
+import { BadRequest, jsonError, optionalString, readJson, requirePatient, requireString } from "@/lib/api";
+
+export const maxDuration = 60;
 
 const OUTCOMES: Outcome[] = ["resolved", "improved", "no_change", "worse"];
 
 export async function POST(req: Request) {
   try {
-    const body = await readJson<Record<string, unknown>>(req);
-    const patient = getPatient(requireString(body.patientId, "patientId", 20));
-    if (!patient) throw new BadRequest("Unknown patient");
+    const body = await readJson(req);
+    const patient = requirePatient(body.patientId);
     const outcome = body.outcome as Outcome;
-    if (!OUTCOMES.includes(outcome)) throw new BadRequest("outcome must be one of " + OUTCOMES.join(", "));
+    if (!OUTCOMES.includes(outcome)) throw new BadRequest(`outcome must be one of ${OUTCOMES.join(", ")}`);
     const result = await retainOutcome(patient, {
       problem: requireString(body.problem, "problem", 300),
       treatment: requireString(body.treatment, "treatment", 500),

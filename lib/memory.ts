@@ -1,6 +1,6 @@
 import type { RecallResult } from "@vectorize-io/hindsight-client";
-import { CLINIC_BANK, PATIENT_BANK, getHindsight } from "./hindsight";
-import type { MemoryItem, MemorySource, Outcome, Patient } from "./types";
+import { CLINIC_BANK, PATIENT_BANK, bankStats, getHindsight, listMemoriesByTags } from "./hindsight";
+import type { ChartResult, MemoryItem, MemorySource, MemoryStats, Outcome, Patient } from "./types";
 
 export const patientTag = (id: string) => `patient:${id}`;
 
@@ -18,6 +18,7 @@ function toItems(results: RecallResult[], source: MemorySource): Omit<MemoryItem
     text: r.text,
     type: r.type ?? "world",
     date: r.occurred_start ?? r.mentioned_at ?? null,
+    learnedAt: r.mentioned_at ?? null,
     tags: r.tags ?? [],
   }));
 }
@@ -98,6 +99,37 @@ export async function recallClinic(complaint: string) {
     { budget: "mid", maxTokens: 2000, types: ["observation", "world"], preferObservations: true }
   );
   return dedupe(toItems(relevant(res.results).slice(0, CLINIC_LIMIT), "clinic"));
+}
+
+const CHART_LIMIT = 500;
+
+/**
+ * Every fact in one patient's chart, oldest first. Listed with the same strict tag
+ * scope as recall, and filtered again here so a server-side change can never
+ * surface another patient's memory.
+ */
+export async function listChart(patient: Patient): Promise<ChartResult> {
+  const tag = patientTag(patient.id);
+  const { items } = await listMemoriesByTags(PATIENT_BANK, [tag], "any_strict", CHART_LIMIT);
+  const mine = items.filter((m) => m.tags?.includes(tag) && m.text);
+  const entries = mine
+    .filter((m) => m.fact_type !== "observation")
+    .map((m) => ({
+      id: m.id,
+      text: m.text ?? "",
+      type: m.fact_type ?? "world",
+      date: m.occurred_start ?? m.mentioned_at ?? m.date ?? null,
+      learnedAt: m.mentioned_at ?? null,
+      tags: m.tags ?? [],
+    }))
+    .sort(byDate);
+  return { entries, observations: mine.length - entries.length };
+}
+
+/** Memory count per bank, straight from Hindsight's bank stats. */
+export async function memoryStats(): Promise<MemoryStats> {
+  const [patient, clinic] = await Promise.all([bankStats(PATIENT_BANK), bankStats(CLINIC_BANK)]);
+  return { patient: patient.total_nodes, clinic: clinic.total_nodes };
 }
 
 /** Store today's consultation in the patient's chart. */

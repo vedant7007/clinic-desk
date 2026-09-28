@@ -30,6 +30,7 @@ export default function Home() {
   const [highlight, setHighlight] = useState<string | null>(null);
   const [toast, setToast] = useState<Toast>(null);
   const [tab, setTab] = useState<"visit" | "outcome">("visit");
+  const [chartVersion, setChartVersion] = useState(0);
 
   // close-visit form
   const [notes, setNotes] = useState("");
@@ -111,6 +112,7 @@ export default function Home() {
     setSaving(true);
     try {
       await post("/api/visit", { patientId: patient.id, complaint, notes, plan });
+      setChartVersion((v) => v + 1);
       setToast({ kind: "ok", text: `Visit saved to ${patient.name.split(" ")[0]}'s memory. Next time, the brief will know.` });
       setProblem(complaint.split(/[.,]/)[0].toLowerCase());
       setTreatment(plan);
@@ -128,6 +130,7 @@ export default function Home() {
     try {
       const r = await post<{ sharedText: string }>("/api/outcome", { patientId: patient.id, problem, treatment, outcome, detail });
       setSharedText(r.sharedText);
+      setChartVersion((v) => v + 1);
       setToast({ kind: "ok", text: "Outcome learned. Saved to the patient's chart and, anonymised, to clinic memory." });
     } catch (e) {
       setToast({ kind: "err", text: (e as Error).message });
@@ -361,7 +364,15 @@ export default function Home() {
         {/* ── Memory ───────────────────────────── */}
         <aside className="memory">
           <h2>What Clinic Desk remembered</h2>
-          <MemoryPanel memories={result?.memories ?? null} highlight={highlight} loading={loading} patientName={patient?.name ?? ""} />
+          {patient && (
+            <MemoryPanel
+              memories={result?.memories ?? null}
+              highlight={highlight}
+              loading={loading}
+              patient={patient}
+              chartVersion={chartVersion}
+            />
+          )}
 
           <div className="ask">
             <h2>Ask the memory</h2>
