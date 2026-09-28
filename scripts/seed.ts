@@ -1,7 +1,10 @@
 /**
  * Loads the demo practice into Hindsight.
- *   npm run seed            (waits for extraction to finish, recommended)
- *   npm run seed -- --async (queues work and returns immediately)
+ *   npm run seed            (retains synchronously, then waits for consolidation)
+ *   npm run seed -- --async (queues extraction on the server, then waits for it)
+ *
+ * Either way the script only exits once both banks report no pending work, so
+ * `npm run check` never runs against half-built memory.
  *
  * Safe to re-run: every batch uses a stable document id, so re-seeding
  * replaces the same documents instead of duplicating memories.
@@ -10,12 +13,35 @@ import { config } from "dotenv";
 config({ path: ".env.local" });
 config();
 
-import { CLINIC_BANK, PATIENT_BANK, ensureBanks, getHindsight } from "../lib/hindsight";
+import { CLINIC_BANK, PATIENT_BANK, bankStats, ensureBanks, getHindsight } from "../lib/hindsight";
 import { patientTag } from "../lib/memory";
 import { PATIENTS } from "../data/patients";
 import { CLINIC_CASES, PATIENT_HISTORY } from "../data/seed-memories";
 
 const runAsync = process.argv.includes("--async");
+const WAIT_TIMEOUT_MS = 5 * 60_000;
+const POLL_MS = 3_000;
+
+/** Poll bank stats until extraction and observation consolidation are done. */
+async function waitUntilIdle(bankIds: string[]) {
+  const started = Date.now();
+  for (;;) {
+    const stats = await Promise.all(bankIds.map((id) => bankStats(id)));
+    const pending = stats.map((s) => s.pending_operations + (s.pending_consolidation ?? 0));
+    const failed = stats.reduce((n, s) => n + s.failed_operations, 0);
+    const line = stats.map((s, i) => `${s.bank_id}: ${s.total_nodes} memories, ${pending[i]} pending`).join(" | ");
+    if (pending.every((n) => n === 0)) {
+      console.log(`✓ memory ready  ${line}${failed ? `  (${failed} failed operations, see the Hindsight UI)` : ""}`);
+      return;
+    }
+    if (Date.now() - started > WAIT_TIMEOUT_MS) {
+      console.warn(`! still processing after ${WAIT_TIMEOUT_MS / 60_000} min: ${line}. Run \`npm run check\` a little later.`);
+      return;
+    }
+    console.log(`… ${line}`);
+    await new Promise((r) => setTimeout(r, POLL_MS));
+  }
+}
 
 async function main() {
   const hs = getHindsight();
@@ -60,11 +86,9 @@ async function main() {
   );
   console.log(`✓ clinic: ${CLINIC_CASES.length} anonymised case outcomes (${Date.now() - t} ms)`);
 
-  console.log(
-    runAsync
-      ? "\nQueued. Give Hindsight a minute to extract facts and build observations, then run `npm run check`."
-      : "\nDone. Run `npm run check` to verify recall, then `npm run dev`."
-  );
+  console.log("\nWaiting for Hindsight to finish extracting facts and consolidating observations...");
+  await waitUntilIdle([PATIENT_BANK, CLINIC_BANK]);
+  console.log("\nDone. Run `npm run check` to verify recall, then `npm run dev`.");
 }
 
 main().catch((err) => {

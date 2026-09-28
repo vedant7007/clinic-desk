@@ -23,6 +23,7 @@ export interface MemoryItem {
   text: string;
   type: string;
   date: string | null;
+  tags: string[];
 }
 
 export type FlagSeverity = "critical" | "warning" | "info";
