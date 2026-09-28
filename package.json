@@ -11,7 +11,8 @@
     "check": "tsx scripts/check.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "screenshots": "tsx scripts/screenshots.ts"
   },
   "engines": {
     "node": ">=18.18"
