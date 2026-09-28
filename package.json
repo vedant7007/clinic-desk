@@ -9,7 +9,9 @@
     "start": "next start",
     "seed": "tsx scripts/seed.ts",
     "check": "tsx scripts/check.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "engines": {
     "node": ">=18.18"
@@ -29,6 +31,7 @@
     "dotenv": "^18.0.4",
     "playwright": "1.63.0",
     "tsx": "^4.23.15",
-    "typescript": "5.9"
+    "typescript": "5.9",
+    "vitest": "3.2.7"
   }
 }

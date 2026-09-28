@@ -193,7 +193,8 @@ export function anonymise(text: string, patient: Pick<Patient, "id" | "name">): 
   }
   return out
     .replace(new RegExp(`\\b(?:patient\\s+)?${escapeRe(patient.id)}\\b`, "gi"), "the patient")
-    .replace(/\+?\d[\d\s-]{8,}\d/g, "[number removed]")
+    // phone-like runs need 10+ digits, so dates (2026-09-28) and readings (138/88) survive
+    .replace(/\+?\d[\d\s-]{8,}\d/g, (m) => (m.replace(/\D/g, "").length >= 10 ? "[number removed]" : m))
     .replace(/\bthe patient(?:\s+the patient)+\b/gi, "the patient");
 }
 
@@ -217,11 +218,10 @@ export async function retainOutcome(
     (input.detail ? input.detail : "");
 
   const profile = `${ageBand(patient.age)} ${patient.sex === "M" ? "male" : "female"}`;
-  const shared = anonymise(
-    `Case outcome (${day}): ${profile} with ${input.problem}. Treatment: ${input.treatment}. Result: ${label}. ` +
-      (input.detail ? input.detail : ""),
-    patient
-  );
+  // Only the doctor's free text can carry identifiers; the template around it is ours.
+  const [problem, treatment, detail] = [input.problem, input.treatment, input.detail].map((t) => anonymise(t, patient));
+  const shared =
+    `Case outcome (${day}): ${profile} with ${problem}. Treatment: ${treatment}. Result: ${label}. ` + (detail ? detail : "");
 
   const [p, c] = await Promise.all([
     hs.retain(PATIENT_BANK, personal, {

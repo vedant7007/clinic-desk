@@ -49,7 +49,8 @@ export function extractJson(raw: string): unknown {
 /** Milliseconds to wait for a 429, from its retry-after header; null when the error is not a rate limit. */
 export function rateLimitWaitMs(err: unknown): number | null {
   if (!(err instanceof Groq.APIError) || err.status !== 429) return null;
-  const seconds = Number(err.headers?.get("retry-after"));
+  const header = err.headers?.get("retry-after");
+  const seconds = header ? Number(header) : NaN;
   return Number.isFinite(seconds) && seconds >= 0 ? seconds * 1000 : DEFAULT_RATE_LIMIT_WAIT_MS;
 }
 
