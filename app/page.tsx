@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { BriefCard } from "@/components/BriefCard";
 import { MemoryPanel } from "@/components/MemoryPanel";
 import { isToday } from "@/lib/text";
-import type { BriefResult, Outcome, Patient } from "@/lib/types";
+import type { BriefResult, MemoryStats, Outcome, Patient } from "@/lib/types";
 
 type Status = { hindsight: boolean; groq: boolean };
 type Toast = { kind: "ok" | "err"; text: string } | null;
@@ -32,6 +32,7 @@ export default function Home() {
   const [toast, setToast] = useState<Toast>(null);
   const [tab, setTab] = useState<"visit" | "outcome">("visit");
   const [chartVersion, setChartVersion] = useState(0);
+  const [memStats, setMemStats] = useState<MemoryStats | null>(null);
   /** Set after a save: the brief on screen predates what Clinic Desk just learned. */
   const [learned, setLearned] = useState<"visit" | "outcome" | null>(null);
 
@@ -53,6 +54,16 @@ export default function Home() {
   const [asking, setAsking] = useState(false);
 
   const patient = useMemo(() => patients.find((p) => p.id === selectedId), [patients, selectedId]);
+
+  /** Counts come straight from Hindsight; on any failure the header shows no number rather than a stale or made-up one. */
+  function loadStats() {
+    fetch("/api/stats")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: MemoryStats | null) => setMemStats(d && typeof d.patient === "number" ? d : null))
+      .catch(() => setMemStats(null));
+  }
+
+  useEffect(loadStats, [chartVersion]);
 
   useEffect(() => {
     fetch("/api/patients")
@@ -182,9 +193,15 @@ export default function Home() {
           </div>
         </div>
         <div className="banks">
-          <span className="bank bank-patient">Patient memory</span>
-          <span className="plus">+</span>
-          <span className="bank bank-clinic">Clinic memory</span>
+          <span className="bank bank-patient">
+            Patient memory{memStats && <b aria-label={`${memStats.patient} memories`}> · {memStats.patient.toLocaleString("en-IN")}</b>}
+          </span>
+          <span className="plus" aria-hidden>
+            +
+          </span>
+          <span className="bank bank-clinic">
+            Clinic memory{memStats && <b aria-label={`${memStats.clinic} memories`}> · {memStats.clinic.toLocaleString("en-IN")}</b>}
+          </span>
           <span className="powered">powered by Hindsight</span>
         </div>
       </header>
