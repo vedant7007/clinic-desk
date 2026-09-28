@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BriefCard } from "@/components/BriefCard";
 import { MemoryPanel } from "@/components/MemoryPanel";
+import { isToday } from "@/lib/text";
 import type { BriefResult, Outcome, Patient } from "@/lib/types";
 
 type Status = { hindsight: boolean; groq: boolean };
@@ -31,6 +32,8 @@ export default function Home() {
   const [toast, setToast] = useState<Toast>(null);
   const [tab, setTab] = useState<"visit" | "outcome">("visit");
   const [chartVersion, setChartVersion] = useState(0);
+  /** Set after a save: the brief on screen predates what Clinic Desk just learned. */
+  const [learned, setLearned] = useState<"visit" | "outcome" | null>(null);
 
   // close-visit form
   const [notes, setNotes] = useState("");
@@ -73,6 +76,7 @@ export default function Home() {
     setTreatment("");
     setDetail("");
     setSharedText(null);
+    setLearned(null);
   }, [patient]);
 
   useEffect(() => {
@@ -97,6 +101,7 @@ export default function Home() {
     setLoading(true);
     setError(null);
     setResult(null);
+    setLearned(null);
     try {
       const r = await post<BriefResult>("/api/brief", { patientId: patient.id, complaint, compare });
       setResult(r);
@@ -113,6 +118,7 @@ export default function Home() {
     try {
       await post("/api/visit", { patientId: patient.id, complaint, notes, plan });
       setChartVersion((v) => v + 1);
+      setLearned("visit");
       setToast({ kind: "ok", text: `Visit saved to ${patient.name.split(" ")[0]}'s memory. Next time, the brief will know.` });
       setProblem(complaint.split(/[.,]/)[0].toLowerCase());
       setTreatment(plan);
@@ -131,6 +137,7 @@ export default function Home() {
       const r = await post<{ sharedText: string }>("/api/outcome", { patientId: patient.id, problem, treatment, outcome, detail });
       setSharedText(r.sharedText);
       setChartVersion((v) => v + 1);
+      setLearned("outcome");
       setToast({ kind: "ok", text: "Outcome learned. Saved to the patient's chart and, anonymised, to clinic memory." });
     } catch (e) {
       setToast({ kind: "err", text: (e as Error).message });
@@ -160,6 +167,7 @@ export default function Home() {
   const missing = status && (!status.hindsight || !status.groq);
   const patientCount = result?.memories.filter((m) => m.source === "patient").length ?? 0;
   const clinicCount = result?.memories.filter((m) => m.source === "clinic").length ?? 0;
+  const learnedToday = result?.memories.filter((m) => isToday(m.learnedAt)).length ?? 0;
 
   return (
     <div className="shell">
@@ -270,6 +278,12 @@ export default function Home() {
                       reasoning <b>{(result.timings.llmMs / 1000).toFixed(1)} s</b>
                     </span>
                   </div>
+                  {learnedToday > 0 && (
+                    <div className="learned-banner" role="status">
+                      <span className="new-badge">New</span> This brief uses {learnedToday} {learnedToday === 1 ? "memory" : "memories"} Clinic
+                      Desk learned today. Look for the New badge in the memory panel.
+                    </div>
+                  )}
                   <div className={`briefs ${result.withoutMemory ? "two" : "one"}`}>
                     {result.withoutMemory && <BriefCard brief={result.withoutMemory} variant="generic" />}
                     <BriefCard brief={result.withMemory} variant="memory" onRefHover={onRefHover} />
@@ -285,6 +299,21 @@ export default function Home() {
                       </button>
                     </div>
 
+                    {learned && (
+                      <div className="learn-cta" role="status">
+                        <div>
+                          <strong>Clinic Desk just learned from this {learned === "visit" ? "visit" : "outcome"}.</strong>
+                          <p>
+                            {learned === "visit"
+                              ? "It is now in the patient's chart. Re-run the brief to see it recalled."
+                              : "It is in the patient's chart and, anonymised, in clinic memory. Re-run the brief to see the new memory used."}
+                          </p>
+                        </div>
+                        <button type="button" className="primary" onClick={prepare} disabled={loading}>
+                          Re-run the brief
+                        </button>
+                      </div>
+                    )}
                     {tab === "visit" ? (
                       <div className="form">
                         <p className="lede">Saved to this patient&apos;s memory, so the next brief starts from here.</p>
