@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BriefCard } from "@/components/BriefCard";
 import { MemoryPanel } from "@/components/MemoryPanel";
-import { isToday } from "@/lib/text";
+import { isToday, suggestProblem } from "@/lib/text";
 import type { BriefResult, MemoryStats, Outcome, Patient } from "@/lib/types";
 
 type Status = { hindsight: boolean; groq: boolean };
@@ -41,6 +41,8 @@ export default function Home() {
   const [plan, setPlan] = useState("");
   // outcome form
   const [problem, setProblem] = useState("");
+  /** Once the doctor edits the problem, suggestions stop overwriting it. */
+  const [problemEdited, setProblemEdited] = useState(false);
   const [treatment, setTreatment] = useState("");
   const [outcome, setOutcome] = useState<Outcome>("resolved");
   const [detail, setDetail] = useState("");
@@ -84,6 +86,7 @@ export default function Home() {
     setNotes("");
     setPlan("");
     setProblem("");
+    setProblemEdited(false);
     setTreatment("");
     setDetail("");
     setSharedText(null);
@@ -116,6 +119,7 @@ export default function Home() {
     try {
       const r = await post<BriefResult>("/api/brief", { patientId: patient.id, complaint, compare });
       setResult(r);
+      if (!problemEdited) setProblem(suggestProblem(r.withMemory.problem, complaint));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -131,8 +135,8 @@ export default function Home() {
       setChartVersion((v) => v + 1);
       setLearned("visit");
       setToast({ kind: "ok", text: `Visit saved to ${patient.name.split(" ")[0]}'s memory. Next time, the brief will know.` });
-      setProblem(complaint.split(/[.,]/)[0].toLowerCase());
-      setTreatment(plan);
+      if (!problemEdited && !problem.trim()) setProblem(suggestProblem(result?.withMemory.problem, complaint));
+      if (!treatment.trim()) setTreatment(plan);
       setTab("outcome");
     } catch (e) {
       setToast({ kind: "err", text: (e as Error).message });
@@ -355,7 +359,14 @@ export default function Home() {
                         <div className="row">
                           <label className="field">
                             <span>Problem</span>
-                            <input value={problem} onChange={(e) => setProblem(e.target.value)} placeholder="e.g. dry cough on lisinopril" />
+                            <input
+                              value={problem}
+                              onChange={(e) => {
+                                setProblem(e.target.value);
+                                setProblemEdited(true);
+                              }}
+                              placeholder="e.g. dry cough on lisinopril"
+                            />
                           </label>
                           <label className="field">
                             <span>Treatment</span>
