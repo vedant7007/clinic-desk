@@ -100,6 +100,24 @@ export async function listMemoriesByTags(
 }
 
 /**
+ * List memory units for a whole bank, optionally filtered by tags. Unlike
+ * listMemoriesByTags this allows an unfiltered listing (the Memory and Insights
+ * browsers need every clinic case, not just one patient's chart).
+ */
+export async function listBankMemories(
+  bankId: string,
+  opts: { tags?: string[]; tagsMatch?: "any_strict" | "all_strict"; limit: number }
+): Promise<{ items: MemoryUnit[]; total: number }> {
+  const query: Record<string, unknown> = { limit: opts.limit, state: "valid" };
+  if (opts.tags?.length) {
+    query.tags = opts.tags;
+    query.tags_match = opts.tagsMatch ?? "any_strict";
+  }
+  const res = await sdk.listMemories({ client: getApi(), path: { bank_id: bankId }, query });
+  return unwrap(res, "listMemories");
+}
+
+/**
  * Turn any Hindsight failure into a message a doctor can act on.
  * Auth and connection problems become ConfigError (HTTP 503 in the API).
  */

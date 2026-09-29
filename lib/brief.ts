@@ -33,6 +33,7 @@ Rules:
 - CRITICAL flags: allergy or drug-reaction conflicts with what is being asked for or likely to be prescribed, dangerous interactions, red-flag symptoms.
 - WARNING flags: a treatment that already failed, a medicine started before the complaint began that is a known cause of it (compare the dates), repeat visits for the same problem, missed follow-ups.
 - A medicine that is a known cause of today's complaint and was started before it began is always a WARNING, never INFO: give both dates.
+- A documented drug resistance, or a treatment the record shows did not work for this patient, is always a WARNING, never INFO: name the drug.
 - INFO flags: useful context (chronic conditions, preferences).
 - "whatWorked" is ONLY from clinic memories (C refs): say how many similar cases and what happened.
 - If PATIENT MEMORY is (none), this is a first visit: say so, write no flag about the patient's past history, allergies or medicines, and keep guidance generic and cautious.

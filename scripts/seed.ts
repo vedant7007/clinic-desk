@@ -14,7 +14,7 @@ config({ path: ".env.local" });
 config();
 
 import { CLINIC_BANK, PATIENT_BANK, bankStats, ensureBanks, getHindsight } from "../lib/hindsight";
-import { patientTag } from "../lib/memory";
+import { contentId, patientTag } from "../lib/memory";
 import { PATIENTS } from "../data/patients";
 import { CLINIC_CASES, PATIENT_HISTORY } from "../data/seed-memories";
 
@@ -72,18 +72,29 @@ async function main() {
     console.log(`✓ ${p.id} ${p.name}: ${history.length} memories (${Date.now() - t} ms)`);
   }
 
+  // Earlier seeds put every case in one document. Remove it, or its memories would
+  // survive alongside the per-case documents below and double the clinic bank.
+  const legacy = await hs.listDocuments(CLINIC_BANK, { limit: 200 });
+  for (const doc of legacy.items.filter((d) => d.id === "seed-clinic-cases")) {
+    await hs.deleteDocument(CLINIC_BANK, doc.id);
+    console.log(`- removed legacy batched document ${doc.id}`);
+  }
+
   const t = Date.now();
-  await hs.retainBatch(
-    CLINIC_BANK,
-    CLINIC_CASES.map((c) => ({
-      content: c.text,
-      timestamp: `${c.date}T10:00:00Z`,
+  // One document per case, exactly as retainOutcome writes a live outcome. Hindsight
+  // extracts several facts from each case, so the document is the only thing that
+  // counts as "a case" — batching them under one id made 26 cases indistinguishable
+  // from one. The id is derived from the anonymised text, so re-seeding replaces.
+  for (const c of CLINIC_CASES) {
+    await hs.retain(CLINIC_BANK, c.text, {
+      timestamp: new Date(`${c.date}T10:00:00Z`),
       context: c.context,
-      tags: ["outcome", "seed"],
-      metadata: { kind: "case_outcome" },
-    })),
-    { documentId: "seed-clinic-cases", async: runAsync }
-  );
+      documentId: `seed-case-${c.date}-${contentId(c.text)}`,
+      tags: ["outcome", `outcome:${c.outcome}`, "seed"],
+      metadata: { kind: "case_outcome", outcome: c.outcome },
+      async: runAsync,
+    });
+  }
   console.log(`✓ clinic: ${CLINIC_CASES.length} anonymised case outcomes (${Date.now() - t} ms)`);
 
   console.log("\nWaiting for Hindsight to finish extracting facts and consolidating observations...");

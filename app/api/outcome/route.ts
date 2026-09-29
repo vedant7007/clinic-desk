@@ -19,7 +19,17 @@ export async function POST(req: Request) {
       outcome,
       detail: optionalString(body.detail, "detail", 1000),
     });
-    return NextResponse.json({ ok: true, sharedText: result.sharedText });
+    // Both banks are reported exactly as Hindsight answered, so a partial write shows
+    // as a partial write. Only a total failure is an error.
+    if (!result.patient.ok && !result.clinic.ok) {
+      return NextResponse.json({ error: result.patient.error ?? "The outcome could not be written to memory." }, { status: 502 });
+    }
+    return NextResponse.json({
+      ok: result.patient.ok && result.clinic.ok,
+      patient: result.patient,
+      clinic: result.clinic,
+      sharedText: result.sharedText,
+    });
   } catch (err) {
     return jsonError(err);
   }

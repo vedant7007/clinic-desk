@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { RecallResult } from "@vectorize-io/hindsight-client";
-import { CLINIC_BANK, PATIENT_BANK, bankStats, getHindsight, listMemoriesByTags } from "./hindsight";
-import type { ChartResult, MemoryItem, MemorySource, MemoryStats, Outcome, Patient } from "./types";
+import { CLINIC_BANK, PATIENT_BANK, bankStats, explainHindsightError, getHindsight, listMemoriesByTags } from "./hindsight";
+import type { ChartResult, MemoryItem, MemorySource, MemoryStats, Outcome, Patient, RetainReceipt } from "./types";
 
 export const patientTag = (id: string) => `patient:${id}`;
 
@@ -127,10 +127,17 @@ export async function listChart(patient: Patient): Promise<ChartResult> {
   return { entries, observations: mine.length - entries.length };
 }
 
-/** Memory count per bank, straight from Hindsight's bank stats. */
+/**
+ * Memory count per bank, straight from Hindsight's bank stats, split the same way as
+ * every other count in the UI: facts first, derived observations reported separately.
+ */
 export async function memoryStats(): Promise<MemoryStats> {
   const [patient, clinic] = await Promise.all([bankStats(PATIENT_BANK), bankStats(CLINIC_BANK)]);
-  return { patient: patient.total_nodes, clinic: clinic.total_nodes };
+  const count = (s: typeof patient) => {
+    const observations = s.nodes_by_fact_type?.observation ?? 0;
+    return { facts: s.total_nodes - observations, observations, nodes: s.total_nodes };
+  };
+  return { patient: count(patient), clinic: count(clinic) };
 }
 
 /**
@@ -145,8 +152,35 @@ export function contentId(...parts: string[]): string {
 
 const today = (now: Date) => now.toISOString().slice(0, 10);
 
+/**
+ * Turn one retain attempt into a receipt the UI can trust. A rejected promise becomes
+ * `ok: false` with the reason, so "Hindsight updated" is only ever shown for a write
+ * that Hindsight actually accepted.
+ */
+function receipt(
+  bank: "patient" | "clinic",
+  text: string,
+  settled: PromiseSettledResult<{ success: boolean; items_count: number }>
+): RetainReceipt {
+  if (settled.status === "rejected") {
+    const e = explainHindsightError(settled.reason);
+    return { bank, ok: false, items: null, text, error: e instanceof Error ? e.message : String(e) };
+  }
+  const { success, items_count } = settled.value;
+  return {
+    bank,
+    ok: success,
+    items: success ? items_count : null,
+    text,
+    error: success ? null : "Hindsight did not confirm the write.",
+  };
+}
+
 /** Store today's consultation in the patient's chart. */
-export async function retainVisit(patient: Patient, input: { complaint: string; notes: string; plan: string }) {
+export async function retainVisit(
+  patient: Patient,
+  input: { complaint: string; notes: string; plan: string }
+): Promise<RetainReceipt> {
   const hs = getHindsight();
   const now = new Date();
   const day = today(now);
@@ -154,13 +188,16 @@ export async function retainVisit(patient: Patient, input: { complaint: string; 
     `Visit on ${day}. ${patient.name} (${patient.age}${patient.sex}) presented with: ${input.complaint}. ` +
     (input.notes ? `Doctor's findings: ${input.notes}. ` : "") +
     (input.plan ? `Plan: ${input.plan}.` : "");
-  return hs.retain(PATIENT_BANK, content, {
-    timestamp: now,
-    context: "clinic consultation note",
-    documentId: `${patient.id}-visit-${day}-${contentId(input.complaint, input.notes, input.plan)}`,
-    tags: [patientTag(patient.id), "visit"],
-    metadata: { patient_id: patient.id, kind: "visit" },
-  });
+  const [settled] = await Promise.allSettled([
+    hs.retain(PATIENT_BANK, content, {
+      timestamp: now,
+      context: "clinic consultation note",
+      documentId: `${patient.id}-visit-${day}-${contentId(input.complaint, input.notes, input.plan)}`,
+      tags: [patientTag(patient.id), "visit"],
+      metadata: { patient_id: patient.id, kind: "visit" },
+    }),
+  ]);
+  return receipt("patient", content, settled);
 }
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -223,7 +260,9 @@ export async function retainOutcome(
   const shared =
     `Case outcome (${day}): ${profile} with ${problem}. Treatment: ${treatment}. Result: ${label}. ` + (detail ? detail : "");
 
-  const [p, c] = await Promise.all([
+  // allSettled, not all: one bank failing must not erase the fact that the other
+  // succeeded. The UI reports each bank's real result, including a partial write.
+  const [p, c] = await Promise.allSettled([
     hs.retain(PATIENT_BANK, personal, {
       timestamp: now,
       context: "treatment outcome follow-up",
@@ -240,7 +279,11 @@ export async function retainOutcome(
       metadata: { kind: "case_outcome", outcome: input.outcome },
     }),
   ]);
-  return { patient: p, clinic: c, sharedText: shared };
+  return {
+    patient: receipt("patient", personal, p),
+    clinic: receipt("clinic", shared, c),
+    sharedText: shared,
+  };
 }
 
 /** Free-form question over one patient's chart, answered by Hindsight reflect. */

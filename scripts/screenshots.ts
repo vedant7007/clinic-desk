@@ -45,7 +45,9 @@ async function cleanup(since: number) {
 async function main() {
   const started = Date.now();
   const browser = await chromium.launch();
-  const page = await browser.newPage({ viewport: { width: 1440, height: 2300 }, deviceScaleFactor: 1 });
+  // 1400px puts the two briefs side by side (above it the memory rail takes the third
+  // column and the briefs stack), which is what the README caption describes.
+  const page = await browser.newPage({ viewport: { width: 1400, height: 2300 }, deviceScaleFactor: 1 });
   const problems: string[] = [];
   page.on("console", (m) => {
     if (m.type() === "error" || m.type() === "warning") problems.push(`${m.type()}: ${m.text()}`);
@@ -53,8 +55,8 @@ async function main() {
   page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
 
   try {
-    await page.goto(APP_URL, { waitUntil: "domcontentloaded" });
-    await page.locator(".qitem", { hasText: "Ravi Kumar Reddy" }).click();
+    await page.goto(`${APP_URL}/consult`, { waitUntil: "domcontentloaded" });
+    await page.locator(".rail-item", { hasText: "Ravi Kumar Reddy" }).click();
     await page.locator(".bank-patient b").waitFor({ timeout: 30_000 });
 
     console.log("1. Ravi's brief");
@@ -65,8 +67,10 @@ async function main() {
     await page.screenshot({ path: "docs/screenshot-brief.png", fullPage: true });
 
     console.log("2. Priya, first visit: no chart yet");
-    await page.locator(".qitem", { hasText: "Priya Nair" }).click();
-    await page.getByLabel("Compare with a memoryless assistant").uncheck();
+    await page.locator(".rail-item", { hasText: "Priya Nair" }).click();
+    // Comparison mode is a switch button, not a checkbox: turn it off only if it is on.
+    const compare = page.getByRole("switch", { name: /Comparison mode/ });
+    if ((await compare.getAttribute("aria-checked")) === "true") await compare.click();
     await prepareBrief(page);
 
     console.log("3. Close the visit and teach the outcome");
@@ -79,13 +83,15 @@ async function main() {
     await page.getByRole("button", { name: "Improved" }).click();
     await page.getByLabel("Detail (optional)").fill("Energy better at 6 weeks, hair fall reduced");
     await page.getByRole("button", { name: "Teach Clinic Desk" }).click();
-    await page.locator(".shared").waitFor({ timeout: 60_000 });
+    await page.locator(".learned-writes").waitFor({ timeout: 60_000 });
 
     console.log("4. Follow-up brief with what it learned");
-    await page.getByLabel("Reason for visit (from reception)").fill("Follow-up for tiredness and hair fall. Feels more energetic, asks whether to continue the tablets.");
+    await page.getByLabel("Reason for visit · from reception").fill("Follow-up for tiredness and hair fall. Feels more energetic, asks whether to continue the tablets.");
     await page.getByRole("button", { name: "Prepare brief" }).click();
     await page.locator(".brief-memory").waitFor({ timeout: BRIEF_TIMEOUT });
     await page.locator(".learned-banner").waitFor({ timeout: 10_000 });
+    // The success toast is fixed-position and lands mid-page in a full-page capture.
+    await page.locator(".toast").waitFor({ state: "detached", timeout: 15_000 }).catch(() => {});
     await page.screenshot({ path: "docs/screenshot-learning.png", fullPage: true });
     console.log(`   ${await page.locator(".learned-banner").innerText()}`);
   } finally {

@@ -13,6 +13,8 @@ type Reply = { status: number; body: unknown; headers?: Record<string, string> }
 const calls: Call[] = [];
 let groqReplies: Reply[] = [];
 let hindsightStatus = 200;
+/** Banks whose writes the mock rejects, so partial-failure handling can be tested. */
+let failWritesTo = new Set<string>();
 
 const PATIENT_BANK = "test-patients";
 const CLINIC_BANK = "test-clinic";
@@ -54,6 +56,7 @@ function hindsight(call: Call): Reply {
   const tail = rest.join("/");
   if (call.method === "PUT" && tail === "") return { status: 200, body: { bank_id: bank, name: bank } };
   if (call.method === "POST" && tail === "memories") {
+    if (failWritesTo.has(bank)) return { status: 500, body: { detail: `bank ${bank} is unavailable` } };
     return { status: 200, body: { success: true, bank_id: bank, items_count: (call.body.items as unknown[]).length, async: false } };
   }
   if (call.method === "POST" && tail === "memories/recall") {
@@ -100,7 +103,7 @@ function hindsight(call: Call): Reply {
   if (call.method === "GET" && tail === "stats") {
     return {
       status: 200,
-      body: { bank_id: bank, total_nodes: bank === PATIENT_BANK ? 133 : 96, total_links: 0, total_documents: 1, nodes_by_fact_type: {}, links_by_link_type: {}, links_by_fact_type: {}, links_breakdown: {}, pending_operations: 0, failed_operations: 0 },
+      body: { bank_id: bank, total_nodes: bank === PATIENT_BANK ? 133 : 96, total_links: 0, total_documents: 1, nodes_by_fact_type: bank === PATIENT_BANK ? { world: 85, observation: 48 } : { world: 65, observation: 31 }, links_by_link_type: {}, links_by_fact_type: {}, links_breakdown: {}, pending_operations: 0, failed_operations: 0 },
     };
   }
   return { status: 404, body: { detail: `mock has no route for ${call.method} ${call.path}` } };
@@ -122,6 +125,7 @@ let api: {
   ask: typeof import("@/app/api/ask/route").POST;
   chart: typeof import("@/app/api/chart/route").GET;
   stats: typeof import("@/app/api/stats/route").GET;
+  health: typeof import("@/app/api/health/route").GET;
   ensureBanks: typeof import("@/lib/hindsight").ensureBanks;
 };
 
@@ -154,6 +158,7 @@ beforeAll(async () => {
     ask: (await import("@/app/api/ask/route")).POST,
     chart: (await import("@/app/api/chart/route")).GET,
     stats: (await import("@/app/api/stats/route")).GET,
+    health: (await import("@/app/api/health/route")).GET,
     ensureBanks: (await import("@/lib/hindsight")).ensureBanks,
   };
 });
@@ -164,6 +169,7 @@ beforeEach(() => {
   calls.length = 0;
   groqReplies = [];
   hindsightStatus = 200;
+  failWritesTo = new Set();
 });
 
 const post = (body: unknown) => new Request("http://app/api", { method: "POST", body: JSON.stringify(body) });
@@ -294,6 +300,20 @@ describe("visit", () => {
     expect(a.metadata).toEqual({ patient_id: "P001", kind: "visit" });
     expect(hsCalls("/memories", CLINIC_BANK)).toHaveLength(0);
   });
+
+  it("returns a receipt with the text written to the chart", async () => {
+    const res = await api.visit(post({ patientId: "P001", complaint: "Dry cough", notes: "", plan: "Switch to losartan" }));
+    const r = await res.json();
+    expect(r.patient).toMatchObject({ bank: "patient", ok: true, items: 1, error: null });
+    expect(r.patient.text).toBe((hsCalls("/memories", PATIENT_BANK)[0].body.items as Record<string, unknown>[])[0].content);
+  });
+
+  it("never claims the chart was updated when Hindsight refused the write", async () => {
+    failWritesTo = new Set([PATIENT_BANK]);
+    const res = await api.visit(post({ patientId: "P001", complaint: "Dry cough", notes: "", plan: "Switch to losartan" }));
+    expect(res.status).toBe(502);
+    expect((await res.json()).ok).toBeUndefined();
+  });
 });
 
 describe("outcome", () => {
@@ -322,6 +342,40 @@ describe("outcome", () => {
     expect(shared.content).toMatch(/^Case outcome \(\d{4}-\d{2}-\d{2}\): 50s male with/);
     expect(JSON.stringify(shared)).not.toMatch(/ravi|kumar|reddy|P001|98480/i);
   });
+
+  it("returns a receipt per bank carrying the exact text written", async () => {
+    const res = await api.outcome(post({ patientId: "P001", problem: "dry cough", treatment: "switched to losartan", outcome: "resolved", detail: "" }));
+    const r = await res.json();
+    expect(r.ok).toBe(true);
+    expect(r.patient).toMatchObject({ bank: "patient", ok: true, items: 1, error: null });
+    expect(r.clinic).toMatchObject({ bank: "clinic", ok: true, items: 1, error: null });
+    // The receipt text is what actually reached each bank, so the UI can show it verbatim.
+    const sent = (name: string) => (hsCalls("/memories", name)[0].body.items as Record<string, unknown>[])[0].content;
+    expect(r.patient.text).toBe(sent(PATIENT_BANK));
+    expect(r.clinic.text).toBe(sent(CLINIC_BANK));
+    expect(r.clinic.text).toBe(r.sharedText);
+  });
+
+  it("reports a partial write honestly when only the clinic bank fails", async () => {
+    failWritesTo = new Set([CLINIC_BANK]);
+    const res = await api.outcome(post({ patientId: "P001", problem: "dry cough", treatment: "losartan", outcome: "resolved", detail: "" }));
+    expect(res.status).toBe(200); // the chart write really did succeed
+    const r = await res.json();
+    expect(r.ok).toBe(false);
+    expect(r.patient.ok).toBe(true);
+    expect(r.clinic.ok).toBe(false);
+    expect(r.clinic.error).toEqual(expect.any(String));
+    expect(r.clinic.items).toBeNull();
+  });
+
+  it("fails with 502 when neither bank accepted the write", async () => {
+    failWritesTo = new Set([PATIENT_BANK, CLINIC_BANK]);
+    const res = await api.outcome(post({ patientId: "P001", problem: "dry cough", treatment: "losartan", outcome: "resolved", detail: "" }));
+    expect(res.status).toBe(502);
+    const r = await res.json();
+    expect(r.error).toEqual(expect.any(String));
+    expect(r.patient).toBeUndefined();
+  });
 });
 
 describe("ask", () => {
@@ -349,8 +403,35 @@ describe("chart and stats", () => {
     expect(r.observations).toBe(1);
   });
 
-  it("reports counts per bank", async () => {
+  it("reports facts per bank, with derived observations counted separately", async () => {
     const r = await (await api.stats()).json();
-    expect(r).toEqual({ patient: 133, clinic: 96 });
+    expect(r).toEqual({
+      patient: { facts: 85, observations: 48, nodes: 133 },
+      clinic: { facts: 65, observations: 31, nodes: 96 },
+    });
+  });
+});
+
+describe("health", () => {
+  it("verifies the connection by calling Hindsight, and never returns the key", async () => {
+    const res = await api.health();
+    expect(res.status).toBe(200);
+    const r = await res.json();
+    expect(r.hindsight.state).toBe("ok");
+    expect(r.hindsight.banks.patient).toMatchObject({ state: "ok", memories: 133 });
+    expect(r.hindsight.banks.clinic).toMatchObject({ state: "ok", memories: 96 });
+    expect(r.groq).toMatchObject({ apiKeySet: true, model: "openai/gpt-oss-120b" });
+    // The probe is a real call, not an env-var read.
+    expect(hsCalls("/stats")).toHaveLength(2);
+    expect(JSON.stringify(r)).not.toMatch(/hs-test-key|gsk-test-key/);
+  });
+
+  it("reports a rejected key as rejected rather than unreachable", async () => {
+    hindsightStatus = 401;
+    const r = await (await api.health()).json();
+    expect(r.hindsight.state).toBe("rejected");
+    expect(r.hindsight.banks.patient.state).toBe("rejected");
+    expect(r.hindsight.banks.patient.memories).toBeNull();
+    expect(r.hindsight.error).toMatch(/HINDSIGHT_API_KEY/);
   });
 });

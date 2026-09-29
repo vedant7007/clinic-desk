@@ -76,6 +76,7 @@ The patient bank is the chart: one bank for the whole practice, where every memo
 | `retain` x2 | `lib/memory.ts` | `retainOutcome` | Closes the loop: the outcome goes to the chart and, anonymised, to the clinic bank. This write is what makes the agent better over time |
 | `reflect` with `tags` + `tagsMatch: "any_strict"`, `includeFacts` | `lib/memory.ts` | `askChart` | "Ask the memory" about one patient |
 | `reflect` with `includeFacts` | `lib/memory.ts` | `askClinic` | "Ask the memory" about the whole practice |
+| `GET /stats` per bank, as a liveness probe | `lib/health.ts` | `healthReport` | Verifies the connection by *calling* Hindsight, so the setup state can tell a missing URL from a rejected key, an unreachable server or an unseeded bank |
 | `listDocuments`, `deleteDocument` | `scripts/screenshots.ts` | `cleanup` | Removes the demo writes after capturing screenshots |
 
 The [Hindsight documentation](https://hindsight.vectorize.io/) covers each of these calls in depth.
@@ -119,23 +120,61 @@ Import the repository in Vercel (framework preset: Next.js) and set these enviro
 
 Seed the banks once from your machine with `npm run seed`; the deployed app only reads and writes memory over the API and never touches the local filesystem. Routes that call the model or write memory allow up to 60 seconds.
 
+## The five sections
+
+The app is a Next.js App Router workspace with one persistent shell (`components/AppShell.tsx`: sidebar nav, command palette on ⌘K/Ctrl K, live memory-bank counts) wrapping five routes:
+
+| Route | Section | What it shows |
+| --- | --- | --- |
+| `/` | **Overview** | Today's roster, completed vs pending visits, memories learned today, and a real recent-activity feed — all derived from memory, nothing invented |
+| `/patients`, `/patients/[id]` | **Patients** | Searchable roster; a per-patient profile with Overview / Timeline / Memory / Visits tabs built from that patient's actual chart |
+| `/consult` | **Consult** | The core workflow: queue, active patient, prepare brief, recalled memory, full chart, ask memory, the without/with comparison, close visit, record outcome and what was learned — plus the live **Hindsight Trace** |
+| `/memory` | **Memory** | Patient vs clinic memory explained, **Recently learned** (what Hindsight retained today), searchable memory details, a click-to-inspect **Evidence** drawer, and the memory lifecycle diagram |
+| `/insights` | **Insights** | Actual outcome counts and distribution, recent clinic learning, and inspectable case evidence — with an honest small-sample note |
+
+Four things make Hindsight visible end to end, and each is driven by live state rather than a script:
+
+- **Hindsight Trace** (`components/HindsightTrace.tsx`) renders the real pipeline — recall (result counts and latency) → reason (the model that ran, timing) → grounded citations → outcome → retain → **recalled again**. The retain steps read the receipts Hindsight returned, so a refused write shows as `!` in red rather than a tick. The final step closes only when a *later* recall actually returns a memory retained today: that re-recall is the proof the loop closed through Hindsight and not through page state.
+- **Without / With Hindsight strip** (`components/Consult.tsx`) counts, for each brief, the memories it could see, the claims it cited to evidence and the flags it raised. Same prompt, same model — only the recalled context differs, and both briefs are shown exactly as the model wrote them.
+- **What was learned** (`components/Consult.tsx`) shows the verbatim text written to each bank after an outcome, with the fact count Hindsight accepted, side by side: the patient's chart entry and the anonymised clinic case.
+- **Evidence Explorer** (`components/EvidenceDrawer.tsx`) traces any citation or answer back to the exact memory that produced it.
+
+`GET /api/health` (`lib/health.ts`) backs all of this by probing both banks on every call. It returns whether each key is set, the host reached, and each bank's state and node count — never the keys themselves.
+
 ## Project layout
 
 ```
 app/
-  page.tsx              queue, consultation, memory panel
+  layout.tsx            root: theme pre-paint + <AppShell>
+  page.tsx              Overview dashboard (real metrics from /api/overview)
+  patients/             patient browser + [id] profile (tabs, timeline)
+  consult/              the consultation workflow (Consult component)
+  memory/               memory browser + patient/clinic explainer + architecture view
+  insights/             clinic-level outcome distribution + evidence
   api/brief             recall both banks + reason -> brief (with and without memory)
   api/visit             retain today's visit to the patient bank
   api/outcome           retain outcome to the patient bank + anonymised to the clinic bank
   api/ask               reflect over one chart or the whole clinic
   api/chart             every fact tagged to one patient
   api/stats             memory count per bank
+  api/overview          today's flow + activity, derived from listed memories
+  api/insights          outcome distribution + recent clinic learning
+  api/memory            browse/search patient & clinic memory (read-only)
+  api/health            live probe of both banks + which keys are set (no secrets returned)
+components/
+  AppShell.tsx          sidebar nav, command palette, live bank counts
+  Consult.tsx           full consultation workflow + Hindsight trace
+  HindsightTrace.tsx    live recall -> reason -> retain -> learned stepper
+  EvidenceDrawer.tsx    claim -> source -> supporting memory
+  MemoryCard.tsx, MemoryPanel.tsx, ActivityFeed.tsx, ArchitectureView.tsx, SetupState.tsx, ui.tsx, icons.tsx
 lib/
-  hindsight.ts          clients, bank setup (missions), stats, tag-scoped listing, error mapping
-  memory.ts             every retain / recall / reflect call, anonymisation
+  hindsight.ts          clients, bank setup (missions), stats, tag-scoped + bank-wide listing, error mapping
+  health.ts             live connection probe: missing / rejected / unreachable / unseeded
+  memory.ts             every retain / recall / reflect call, anonymisation, retain receipts
+  analytics.ts          overview / insights / memory-browse aggregation (read-only, over listed memories)
   brief.ts              the agent: recall -> reason -> grounded, cited brief
   llm.ts                Groq JSON calls: validation, retries, rate limits, model fallback
-  api.ts                input validation and error responses
+  api.ts / client.ts    server input validation & errors / client fetch helpers (status-aware)
   text.ts               display helpers used by the browser
 data/
   patients.ts           today's queue (display only)
@@ -143,6 +182,18 @@ data/
 scripts/                seed, check, screenshots
 tests/                  vitest unit and integration tests
 ```
+
+## Demo script (proves persistent learning)
+
+With the banks seeded (`npm run seed`), this sequence exercises the real loop end to end — no fabricated data:
+
+1. **Overview** → today's clinic at a glance.
+2. **Consult** → pick **Priya Nair** (P008, a first visit) → **Prepare brief**. Watch the Hindsight Trace recall → reason; the brief honestly says "first visit" and leans on anonymised clinic cases.
+3. Click a citation (e.g. `C1`) → the **Evidence** drawer shows the exact clinic memory behind the claim.
+4. Read the **Without / With Hindsight** strip above the briefs: `0` memories and `0` cited claims on the left against the real counts on the right. Both briefs below are the model's own output, unedited.
+5. **Close the visit**, then **Record the outcome** → the Trace advances to RETAIN and **What was learned** shows the exact text written to each bank, with the fact count Hindsight accepted for each.
+6. **Memory** → the new memories appear under **Recently learned**, each with a **New** badge; open one to inspect it.
+7. Back in **Consult**, **Re-run the brief** → the newly retained memory is recalled and cited, and the Trace's final **Recalled again** step closes with the count of today's memories that came back. That recall is the proof the learning persisted through Hindsight, not frontend state.
 
 ## Edge cases handled
 
@@ -152,7 +203,8 @@ tests/                  vitest unit and integration tests
 - **New patients:** an empty chart produces an honest first-visit brief with no invented history, allergies or medicines.
 - **Duplicate writes:** every button that writes to memory is locked while its request runs and cannot resend content it just saved. On the server, visit and outcome document ids are derived from the content and the day, so a retry replaces the same memory instead of adding another.
 - **Model failures:** replies are schema-validated with zod; `<think>` blocks and code fences are stripped. The primary model gets two tries, then the fallback. A 429 waits for `retry-after` when it is short and otherwise moves to the fallback model. A model the key cannot use is skipped. If every attempt fails the API returns a clear 502 and the UI never renders a half-built brief. If only the memoryless comparison fails, the memory brief is still shown.
-- **Service problems:** a rejected Hindsight or Groq key, an unreachable Hindsight server, or unseeded banks each produce a plain message naming the fix, shown as a banner as soon as the page loads.
+- **Service problems:** a rejected Hindsight or Groq key, an unreachable Hindsight server, or unseeded banks each produce a plain message naming the fix, shown as a banner as soon as the page loads. The setup state additionally probes `/api/health` and highlights the variable the probe proved is at fault, so "key rejected" is never reported as "server unreachable".
+- **Partial writes:** the outcome writes to two banks. They are issued together but settled independently, so if one bank refuses, the other's success is still reported truthfully — the response carries a receipt per bank and the UI shows one write as accepted and the other as failed. Only a total failure is a 502. Nothing is ever shown as "learned" unless Hindsight confirmed it.
 - **Input validation:** every route rejects malformed JSON, non-object bodies, missing or empty fields, over-long text and unknown patients with a 400 and a message naming the field. The browser enforces the same limits.
 - **Accessibility:** full keyboard use (queue, tabs with arrow keys, toggles with `aria-pressed`), visible focus rings, labelled citations, announced status and errors, and text contrast of at least WCAG AA. The layout works down to 390px wide without horizontal scrolling.
 

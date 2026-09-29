@@ -11,8 +11,12 @@ export async function POST(req: Request) {
     const complaint = requireString(body.complaint, "complaint", 1000);
     const notes = optionalString(body.notes, "notes", 1000);
     const plan = requireString(body.plan, "plan", 1000);
-    await retainVisit(patient, { complaint, notes, plan });
-    return NextResponse.json({ ok: true });
+    const patientReceipt = await retainVisit(patient, { complaint, notes, plan });
+    // 502 when Hindsight refused the write: the UI must never claim the chart was updated.
+    if (!patientReceipt.ok) {
+      return NextResponse.json({ error: patientReceipt.error ?? "The visit could not be written to memory." }, { status: 502 });
+    }
+    return NextResponse.json({ ok: true, patient: patientReceipt });
   } catch (err) {
     return jsonError(err);
   }

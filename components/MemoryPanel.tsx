@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { displayText, fmtDate, isToday } from "@/lib/text";
+import { useSlidingIndicator } from "./motion";
 import type { ChartResult, MemoryItem, Patient } from "@/lib/types";
 
 interface Props {
@@ -24,10 +25,23 @@ function NewBadge({ learnedAt }: { learnedAt: string | null }) {
   );
 }
 
-function Group({ title, hint, items, highlight }: { title: string; hint: string; items: MemoryItem[]; highlight: string | null }) {
+function Group({
+  title,
+  hint,
+  items,
+  highlight,
+  source,
+}: {
+  title: string;
+  hint: string;
+  items: MemoryItem[];
+  highlight: string | null;
+  source: "patient" | "clinic";
+}) {
   return (
-    <div className="mem-group">
+    <div className={`mem-group g-${source}`}>
       <div className="mem-group-head">
+        <span className="gh-dot" aria-hidden />
         <h3>{title}</h3>
         <span className="count">{items.length}</span>
       </div>
@@ -79,12 +93,14 @@ function RecalledView({ memories, highlight, loading, patient }: Omit<Props, "ch
   return (
     <>
       <Group
+        source="patient"
         title={`${patient.name.split(" ")[0]}'s chart`}
         hint="Patient bank · scoped to this patient only"
         items={memories.filter((m) => m.source === "patient")}
         highlight={highlight}
       />
       <Group
+        source="clinic"
         title="Clinic experience"
         hint="Clinic bank · anonymised outcomes from similar cases"
         items={memories.filter((m) => m.source === "clinic")}
@@ -125,8 +141,9 @@ function ChartView({ patient, chartVersion }: { patient: Patient; chartVersion: 
   }
   const learnedToday = chart.entries.filter((e) => isToday(e.learnedAt)).length;
   return (
-    <div className="mem-group">
+    <div className="mem-group g-patient">
       <div className="mem-group-head">
+        <span className="gh-dot" aria-hidden />
         <h3>Full chart</h3>
         <span className="count">{chart.entries.length}</span>
       </div>
@@ -155,6 +172,7 @@ function ChartView({ patient, chartVersion }: { patient: Patient; chartVersion: 
 
 export function MemoryPanel({ memories, highlight, loading, patient, chartVersion }: Props) {
   const [view, setView] = useState<View>("brief");
+  const tabsRef = useSlidingIndicator<HTMLDivElement>(view);
   const tabs: [View, string][] = [
     ["brief", "Recalled for this brief"],
     ["chart", "Full chart"],
@@ -162,7 +180,7 @@ export function MemoryPanel({ memories, highlight, loading, patient, chartVersio
 
   return (
     <>
-      <div className="tabs mem-tabs" role="tablist" aria-label="Memory view">
+      <div className="tabs mem-tabs" role="tablist" aria-label="Memory view" ref={tabsRef}>
         {tabs.map(([v, label], i) => (
           <button
             key={v}

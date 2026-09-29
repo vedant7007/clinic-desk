@@ -4,11 +4,22 @@
  * CLINIC_CASES goes into the clinic bank (anonymised, no names).
  * None of this is real patient data.
  */
+import type { Outcome } from "../lib/types";
 
 export interface SeedEntry {
   date: string; // YYYY-MM-DD
   text: string;
   context: string;
+}
+
+/**
+ * A clinic case carries its outcome category explicitly, taken from what the case
+ * text itself records. The category is stored as an `outcome:<value>` tag at seed
+ * time, exactly as `retainOutcome` does for a live visit, so the Insights
+ * distribution is computed from the same tag for seeded and recorded cases alike.
+ */
+export interface ClinicCase extends SeedEntry {
+  outcome: Outcome;
 }
 
 export const PATIENT_HISTORY: Record<string, SeedEntry[]> = {
@@ -64,46 +75,56 @@ export const PATIENT_HISTORY: Record<string, SeedEntry[]> = {
   P008: [],
 };
 
-export const CLINIC_CASES: SeedEntry[] = [
+/**
+ * Each `outcome` records what the case text itself states about the problem after the
+ * treatment described — "resolved"/"gone"/"cleared" is resolved, a partial gain is
+ * improved, "no change"/"did not improve" is no_change, and a treatment that caused
+ * harm is worse. Nothing is rounded up: cases that only say the problem stayed
+ * acceptable are no_change, not improved.
+ */
+export const CLINIC_CASES: ClinicCase[] = [
   // ACE inhibitor cough pattern
-  { date: "2025-09-10", context: "anonymised case outcome", text: "Case outcome: 60s male with hypertension on lisinopril (ACE inhibitor) and dry cough for 10 weeks. Two antibiotic courses gave no benefit. Switched lisinopril to losartan (ARB). Cough fully resolved within 3 weeks." },
-  { date: "2025-11-21", context: "anonymised case outcome", text: "Case outcome: 50s female with hypertension on enalapril (ACE inhibitor), persistent dry night cough for 2 months, chest X-ray normal. Switched to telmisartan (ARB). Cough resolved in 4 weeks, BP stayed controlled." },
-  { date: "2026-01-30", context: "anonymised case outcome", text: "Case outcome: 50s male on ramipril (ACE inhibitor) with dry cough 6 weeks. Given cough syrup and antihistamine, no change. Switched to losartan. Cough gone in 2 weeks." },
-  { date: "2026-03-14", context: "anonymised case outcome", text: "Case outcome: 60s female on lisinopril with dry cough 3 months, treated twice with antibiotics without benefit. Switched to an ARB. Resolved within a month." },
-  { date: "2026-05-06", context: "anonymised case outcome", text: "Case outcome: 40s male on lisinopril with dry cough. Initially given azithromycin, no change. After switching to telmisartan cough resolved in 3 weeks." },
-  { date: "2026-06-17", context: "anonymised case outcome", text: "Case outcome: 70s male on ramipril with dry cough. Doctor kept the ACE inhibitor and tried inhalers for 6 weeks, no change. Switched to ARB, cough settled." },
+  { date: "2025-09-10", outcome: "resolved", context: "anonymised case outcome", text: "Case outcome: 60s male with hypertension on lisinopril (ACE inhibitor) and dry cough for 10 weeks. Two antibiotic courses gave no benefit. Switched lisinopril to losartan (ARB). Cough fully resolved within 3 weeks." },
+  // Phrased retrospectively: a case is recorded when the outcome is known, so its
+  // period must run backwards from the record date. "resolved in 4 weeks" made the
+  // extractor date the resolution four weeks AFTER this record, i.e. in the future.
+  { date: "2025-11-21", outcome: "resolved", context: "anonymised case outcome", text: "Case outcome: 50s female with hypertension on enalapril (ACE inhibitor), persistent dry night cough for 2 months, chest X-ray normal. Switched to telmisartan (ARB) four weeks earlier. The cough has now fully resolved and blood pressure stayed controlled." },
+  { date: "2026-01-30", outcome: "resolved", context: "anonymised case outcome", text: "Case outcome: 50s male on ramipril (ACE inhibitor) with dry cough 6 weeks. Given cough syrup and antihistamine, no change. Switched to losartan. Cough gone in 2 weeks." },
+  { date: "2026-03-14", outcome: "resolved", context: "anonymised case outcome", text: "Case outcome: 60s female on lisinopril with dry cough 3 months, treated twice with antibiotics without benefit. Switched to an ARB. Resolved within a month." },
+  { date: "2026-05-06", outcome: "resolved", context: "anonymised case outcome", text: "Case outcome: 40s male on lisinopril with dry cough. Initially given azithromycin, no change. After switching to telmisartan cough resolved in 3 weeks." },
+  { date: "2026-06-17", outcome: "resolved", context: "anonymised case outcome", text: "Case outcome: 70s male on ramipril with dry cough. Doctor kept the ACE inhibitor and tried inhalers for 6 weeks, no change. Switched to ARB, cough settled." },
 
   // Migraine preventives and pregnancy planning
-  { date: "2025-10-08", context: "anonymised case outcome", text: "Case outcome: 30s female with migraine planning pregnancy. Preventive medication reviewed before conception; amitriptyline tapered and stopped, managed with trigger control, regular meals, sleep routine and paracetamol for attacks. Frequency stayed acceptable." },
-  { date: "2026-01-19", context: "anonymised case outcome", text: "Case outcome: 30s female with migraine on propranolol stopped it due to fatigue. Switched to amitriptyline, good reduction in attacks." },
-  { date: "2026-04-25", context: "anonymised case outcome", text: "Case outcome: 20s female with frequent migraine, screen-heavy job. Structured screen breaks, hydration and fixed meal times reduced attacks by about half without extra medicine." },
-  { date: "2026-07-02", context: "anonymised case outcome", text: "Case outcome: 30s female trying to conceive with migraine. Referred to gynaecology for a joint medicine review; topiramate and valproate avoided. Attacks managed without daily preventive." },
+  { date: "2025-10-08", outcome: "no_change", context: "anonymised case outcome", text: "Case outcome: 30s female with migraine planning pregnancy. Preventive medication reviewed before conception; amitriptyline tapered and stopped, managed with trigger control, regular meals, sleep routine and paracetamol for attacks. Frequency stayed acceptable." },
+  { date: "2026-01-19", outcome: "improved", context: "anonymised case outcome", text: "Case outcome: 30s female with migraine on propranolol stopped it due to fatigue. Switched to amitriptyline, good reduction in attacks." },
+  { date: "2026-04-25", outcome: "improved", context: "anonymised case outcome", text: "Case outcome: 20s female with frequent migraine, screen-heavy job. Structured screen breaks, hydration and fixed meal times reduced attacks by about half without extra medicine." },
+  { date: "2026-07-02", outcome: "improved", context: "anonymised case outcome", text: "Case outcome: 30s female trying to conceive with migraine. Referred to gynaecology for a joint medicine review; topiramate and valproate avoided. Attacks managed without daily preventive." },
 
   // Metformin intolerance and adherence
-  { date: "2025-12-12", context: "anonymised case outcome", text: "Case outcome: 60s male with type 2 diabetes skipping metformin doses due to diarrhoea. Switched to extended-release metformin once daily with dinner. GI upset settled, adherence improved, HbA1c fell from 8.2 to 7.1 in 3 months." },
-  { date: "2026-02-27", context: "anonymised case outcome", text: "Case outcome: 50s female with type 2 diabetes and stomach upset on metformin. Extended-release metformin with food resolved symptoms. HbA1c improved by 0.9 in 3 months." },
-  { date: "2026-05-15", context: "anonymised case outcome", text: "Case outcome: 60s male with rising HbA1c, tired in afternoons. Found to be missing evening doses. Once-daily extended-release metformin plus a phone reminder; HbA1c improved from 8.0 to 7.3." },
-  { date: "2026-07-21", context: "anonymised case outcome", text: "Case outcome: 60s male reluctant to start insulin with HbA1c 8.5. Adherence fixed first and a second oral agent added; HbA1c reached 7.2 in 4 months without insulin." },
+  { date: "2025-12-12", outcome: "resolved", context: "anonymised case outcome", text: "Case outcome: 60s male with type 2 diabetes skipping metformin doses due to diarrhoea. Switched to extended-release metformin once daily with dinner. GI upset settled, adherence improved, HbA1c fell from 8.2 to 7.1 in 3 months." },
+  { date: "2026-02-27", outcome: "resolved", context: "anonymised case outcome", text: "Case outcome: 50s female with type 2 diabetes and stomach upset on metformin. Extended-release metformin with food resolved symptoms. HbA1c improved by 0.9 in 3 months." },
+  { date: "2026-05-15", outcome: "improved", context: "anonymised case outcome", text: "Case outcome: 60s male with rising HbA1c, tired in afternoons. Found to be missing evening doses. Once-daily extended-release metformin plus a phone reminder; HbA1c improved from 8.0 to 7.3." },
+  { date: "2026-07-21", outcome: "improved", context: "anonymised case outcome", text: "Case outcome: 60s male reluctant to start insulin, HbA1c 8.5 four months earlier. Adherence was fixed first and a second oral agent added; HbA1c has now fallen to 7.2 without insulin." },
 
   // UTI resistance
-  { date: "2025-10-30", context: "anonymised case outcome", text: "Case outcome: 40s female with recurrent UTI, culture showed ciprofloxacin resistance. Nitrofurantoin 5-day course cleared symptoms in 3 days." },
-  { date: "2026-03-03", context: "anonymised case outcome", text: "Case outcome: 40s female, third UTI in a year, given ciprofloxacin empirically without culture. Did not improve; culture later showed resistance. Needed a second antibiotic. Lesson: send culture early for recurrent UTI." },
-  { date: "2026-06-09", context: "anonymised case outcome", text: "Case outcome: 50s female with recurrent UTIs and low water intake. Increased fluids to 2.5 litres a day and post-void hygiene advice; no further UTI in 5 months." },
+  { date: "2025-10-30", outcome: "resolved", context: "anonymised case outcome", text: "Case outcome: 40s female with recurrent UTI, culture showed ciprofloxacin resistance. Nitrofurantoin 5-day course cleared symptoms in 3 days." },
+  { date: "2026-03-03", outcome: "no_change", context: "anonymised case outcome", text: "Case outcome: 40s female, third UTI in a year, given ciprofloxacin empirically without culture. Did not improve; culture later showed resistance. Needed a second antibiotic. Lesson: send culture early for recurrent UTI." },
+  { date: "2026-06-09", outcome: "resolved", context: "anonymised case outcome", text: "Case outcome: 50s female with recurrent UTIs and low water intake. Increased fluids to 2.5 litres a day and post-void hygiene advice; no further UTI in 5 months." },
 
   // Back pain
-  { date: "2025-11-11", context: "anonymised case outcome", text: "Case outcome: 20s male with desk-job lower back pain relapse. Painkiller injection gave relief for 2 days only. Restarting physiotherapy and a workstation setup (proper chair, laptop stand) resolved pain in 4 weeks." },
-  { date: "2026-02-22", context: "anonymised case outcome", text: "Case outcome: 30s male with mechanical back pain and NSAID gastritis history. Managed with paracetamol, heat and physiotherapy. Avoided NSAIDs, no gastric symptoms." },
-  { date: "2026-05-28", context: "anonymised case outcome", text: "Case outcome: 20s female with recurring low back pain who stopped home exercises. Restarted a 10-minute daily routine; relapses stopped over 3 months." },
+  { date: "2025-11-11", outcome: "resolved", context: "anonymised case outcome", text: "Case outcome: 20s male with desk-job lower back pain relapse. Painkiller injection gave relief for 2 days only. Restarting physiotherapy and a workstation setup (proper chair, laptop stand) resolved pain in 4 weeks." },
+  { date: "2026-02-22", outcome: "improved", context: "anonymised case outcome", text: "Case outcome: 30s male with mechanical back pain and NSAID gastritis history. Managed with paracetamol, heat and physiotherapy. Avoided NSAIDs, no gastric symptoms." },
+  { date: "2026-05-28", outcome: "resolved", context: "anonymised case outcome", text: "Case outcome: 20s female with recurring low back pain who stopped home exercises. Restarted a 10-minute daily routine; relapses stopped over 3 months." },
 
   // Warfarin and painkillers
-  { date: "2025-12-05", context: "anonymised case outcome", text: "Case outcome: 70s female on warfarin took ibuprofen for joint pain, INR rose to 5 with bruising. Stopped ibuprofen. Managed later with paracetamol and topical diclofenac gel without INR problems." },
-  { date: "2026-04-10", context: "anonymised case outcome", text: "Case outcome: 70s male on warfarin with knee osteoarthritis. Physiotherapy plus paracetamol and topical NSAID gel controlled pain. No bleeding events over 6 months." },
+  { date: "2025-12-05", outcome: "worse", context: "anonymised case outcome", text: "Case outcome: 70s female on warfarin took ibuprofen for joint pain, INR rose to 5 with bruising. Stopped ibuprofen. Managed later with paracetamol and topical diclofenac gel without INR problems." },
+  { date: "2026-04-10", outcome: "improved", context: "anonymised case outcome", text: "Case outcome: 70s male on warfarin with knee osteoarthritis. Physiotherapy plus paracetamol and topical NSAID gel controlled pain. No bleeding events over 6 months." },
 
   // GERD
-  { date: "2026-01-08", context: "anonymised case outcome", text: "Case outcome: 50s male with GERD relapse after stopping pantoprazole abruptly. Restarted, then tapered slowly over 4 weeks together with an early dinner (3 hours before bed) and head-end elevation. Stayed symptom free off daily medicine." },
-  { date: "2026-05-19", context: "anonymised case outcome", text: "Case outcome: 50s male smoker with GERD and weight gain. Stopping late-night meals and cutting smoking reduced symptoms more than increasing the PPI dose." },
+  { date: "2026-01-08", outcome: "resolved", context: "anonymised case outcome", text: "Case outcome: 50s male with GERD relapse after stopping pantoprazole abruptly. Restarted, then tapered slowly over 4 weeks together with an early dinner (3 hours before bed) and head-end elevation. Stayed symptom free off daily medicine." },
+  { date: "2026-05-19", outcome: "improved", context: "anonymised case outcome", text: "Case outcome: 50s male smoker with GERD and weight gain. Stopping late-night meals and cutting smoking reduced symptoms more than increasing the PPI dose." },
 
   // Fatigue and hair fall, first-visit workup
-  { date: "2026-03-26", context: "anonymised case outcome", text: "Case outcome: 30s female with tiredness and hair fall for 3 months. Tests showed low ferritin and low vitamin D; thyroid normal. Iron and vitamin D supplements improved energy in 6 weeks." },
-  { date: "2026-06-02", context: "anonymised case outcome", text: "Case outcome: 30s female with fatigue and hair fall; TSH high, diagnosed hypothyroidism. Thyroid replacement improved symptoms over 2 months." },
+  { date: "2026-03-26", outcome: "improved", context: "anonymised case outcome", text: "Case outcome: 30s female with tiredness and hair fall for 3 months. Tests showed low ferritin and low vitamin D; thyroid normal. Iron and vitamin D supplements improved energy in 6 weeks." },
+  { date: "2026-06-02", outcome: "improved", context: "anonymised case outcome", text: "Case outcome: 30s female with fatigue and hair fall; TSH high, diagnosed hypothyroidism. Thyroid replacement improved symptoms over 2 months." },
 ];
